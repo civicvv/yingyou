@@ -1,0 +1,17 @@
+# 依赖与构建产物
+node_modules/
+frontend/dist/
+backend/target/
+
+# 本地数据库与运行配置
+.pgdata/
+backend/config/application-local.yml
+.env
+.env.*
+*.local
+
+# 日志与编辑器
+*.log
+.idea/
+.vscode/
+.DS_Store
