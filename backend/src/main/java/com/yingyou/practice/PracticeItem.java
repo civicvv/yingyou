@@ -33,6 +33,9 @@ public class PracticeItem {
     @Column(name = "hint_used", nullable = false)
     private boolean hintUsed;
 
+    @Column(name = "hint_word_index")
+    private Integer hintWordIndex;
+
     @Column(name = "answer_revealed", nullable = false)
     private boolean answerRevealed;
 
@@ -83,6 +86,10 @@ public class PracticeItem {
         return hintUsed;
     }
 
+    public Integer getHintWordIndex() {
+        return hintWordIndex;
+    }
+
     public boolean isAnswerRevealed() {
         return answerRevealed;
     }
@@ -122,8 +129,11 @@ public class PracticeItem {
         this.terminatedAt = now;
     }
 
-    public void useHint() {
-        this.hintUsed = true;
+    public void useHint(int wordIndex) {
+        if (!this.hintUsed) {
+            this.hintUsed = true;
+            this.hintWordIndex = wordIndex;
+        }
     }
 
     public void revealAnswer() {

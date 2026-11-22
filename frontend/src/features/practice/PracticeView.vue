@@ -20,7 +20,9 @@ const identity = useIdentityStore()
 const { kind } = storeToRefs(identity)
 
 const session = ref<PracticeSessionView | null>(null)
-const answer = ref('')
+const slotValues = ref<string[]>([])
+const activeSlot = ref(0)
+const slotRefs = ref<Record<number, HTMLInputElement | null>>({})
 const loading = ref(true)
 const submitting = ref(false)
 const submittingAction = ref<PracticeAction | null>(null)
@@ -30,18 +32,20 @@ const isComposing = ref(false)
 const prefixState = ref<{ matchedCount: number; firstMismatchIndex: number | null } | null>(null)
 const mismatchDismissed = ref(false)
 
-const answerInput = ref<HTMLInputElement | null>(null)
 const nextButton = ref<HTMLButtonElement | null>(null)
 
 let prefixTimer: number | undefined
 let prefixSequence = 0
-let pendingRetry: { action: PracticeAction; text: string; requestId: string } | null = null
+let pendingRetry: { action: PracticeAction; text: string; wordIndex: number | null; requestId: string } | null =
+  null
 
 const currentItem = computed(() => session.value?.currentItem ?? null)
 const feedback = computed(() => session.value?.feedback ?? null)
 const terminated = computed(() => currentItem.value !== null && currentItem.value.status !== 'OPEN')
 const completed = computed(() => session.value?.status === 'COMPLETED')
-const words = computed(() => (answer.value.trim() ? answer.value.trim().split(/\s+/) : []))
+const answer = computed(() => slotValues.value.map((value) => value.trim()).join(' ').trim())
+const hasInput = computed(() => answer.value.length > 0)
+const wordLengths = computed(() => currentItem.value?.wordLengths ?? [])
 const progressPercent = computed(() => {
   if (!session.value || session.value.total === 0) {
     return 0
@@ -101,7 +105,7 @@ const statusMessage = computed(() => {
     return '已公布参考答案，可以继续修改作答。'
   }
   if (feedback.value?.hint) {
-    return `已使用提示，首词是 ${feedback.value.hint}，本题答对将记为辅助完成。`
+    return `已使用提示：${feedback.value.hint}。本题答对将记为辅助完成。`
   }
   return ''
 })
@@ -128,13 +132,17 @@ onBeforeUnmount(() => {
   window.clearTimeout(prefixTimer)
 })
 
-watch(answer, (value) => {
-  const item = currentItem.value
-  if (!item || item.status !== 'OPEN') {
-    return
-  }
-  sessionStorage.setItem(draftKey(item.id), value)
-})
+watch(
+  slotValues,
+  (values) => {
+    const item = currentItem.value
+    if (!item || item.status !== 'OPEN') {
+      return
+    }
+    sessionStorage.setItem(draftKey(item.id), JSON.stringify(values))
+  },
+  { deep: true },
+)
 
 async function loadInitial() {
   loading.value = true
@@ -170,13 +178,13 @@ function applyView(view: PracticeSessionView) {
     if (previousItemId) {
       sessionStorage.removeItem(draftKey(previousItemId))
     }
-    answer.value = sessionStorage.getItem(draftKey(item.id)) ?? ''
+    restoreDraft(item.id, item.wordLengths?.length ?? 0)
     prefixState.value = null
     mismatchDismissed.value = false
     pendingRetry = null
     nextTick(() => {
       if (item.status === 'OPEN') {
-        answerInput.value?.focus()
+        focusSlot(activeSlot.value)
       } else {
         nextButton.value?.focus()
       }
@@ -207,26 +215,135 @@ function mismatchLabel(index: number | null, type: string | null) {
   return `第 ${position} 个词可能拼错`
 }
 
-function wordClass(index: number) {
-  if (index < activeMismatch.value.matched) {
-    return 'word word--matched'
+function slotState(index: number) {
+  const mismatch = activeMismatch.value
+  if (index === mismatch.index) {
+    return 'fix'
   }
-  if (index === activeMismatch.value.index) {
-    return 'word word--fix'
+  if (index === activeSlot.value) {
+    return 'active'
   }
-  return 'word word--pending'
+  if (mismatch.index !== null && index > mismatch.index) {
+    return 'pending'
+  }
+  if (index < mismatch.matched) {
+    return 'matched'
+  }
+  if (slotValues.value[index]?.trim()) {
+    return 'matched'
+  }
+  return 'pending'
 }
 
-function completedPrefix(text: string) {
-  const withoutTrailingWord = text.replace(/\S+$/, '')
-  return withoutTrailingWord.trim() ? withoutTrailingWord : ''
+function slotWidth(index: number) {
+  const length = wordLengths.value[index] ?? 6
+  return `${Math.min(Math.max(length + 1, 3), 26)}ch`
 }
 
-function onInput() {
-  if (feedback.value?.matchedCount !== null) {
-    mismatchDismissed.value = true
-  }
+function setSlotRef(index: number, element: unknown) {
+  slotRefs.value[index] = (element as HTMLInputElement | null) ?? null
+}
+
+function focusSlot(index: number) {
+  const target = Math.max(0, Math.min(index, Math.max(0, wordLengths.value.length - 1)))
+  activeSlot.value = target
+  nextTick(() => {
+    const element = slotRefs.value[target]
+    element?.focus()
+    element?.setSelectionRange(element.value.length, element.value.length)
+  })
+}
+
+function setActiveSlot(index: number) {
+  activeSlot.value = index
   schedulePrefixCheck()
+}
+
+function firstEmptySlot() {
+  const index = slotValues.value.findIndex((value) => !value.trim())
+  return index < 0 ? Math.max(0, slotValues.value.length - 1) : index
+}
+
+function restoreDraft(itemId: string, count: number) {
+  const raw = sessionStorage.getItem(draftKey(itemId))
+  let words: string[] = []
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw)
+      if (Array.isArray(parsed)) {
+        words = parsed.map((value) => String(value ?? ''))
+      } else {
+        words = String(parsed).split(/\s+/)
+      }
+    } catch {
+      words = raw.split(/\s+/)
+    }
+  }
+  words = words.slice(0, count)
+  while (words.length < count) {
+    words.push('')
+  }
+  slotValues.value = words
+  activeSlot.value = firstEmptySlot()
+}
+
+function distributeWords(startIndex: number, text: string) {
+  const words = text.trim().split(/\s+/).filter(Boolean)
+  if (words.length === 0) {
+    slotValues.value[startIndex] = ''
+    focusSlot(startIndex)
+    return
+  }
+  let cursor = startIndex
+  for (const word of words) {
+    if (cursor >= wordLengths.value.length) {
+      break
+    }
+    slotValues.value[cursor] = word
+    cursor += 1
+  }
+  mismatchDismissed.value = true
+  focusSlot(Math.min(cursor, Math.max(0, wordLengths.value.length - 1)))
+  schedulePrefixCheck()
+}
+
+function onSlotInput(index: number, event: Event) {
+  const input = event.target as HTMLInputElement
+  const raw = input.value
+  activeSlot.value = index
+  if (/\s/.test(raw)) {
+    distributeWords(index, raw)
+    return
+  }
+  mismatchDismissed.value = true
+  schedulePrefixCheck()
+}
+
+function onSpace(index: number) {
+  if (!slotValues.value[index]?.trim()) {
+    notice.value = '请先输入这个单词'
+    return
+  }
+  notice.value = null
+  mismatchDismissed.value = true
+  focusSlot(index + 1)
+  schedulePrefixCheck()
+}
+
+function onBackspace(index: number, event: KeyboardEvent) {
+  if (!slotValues.value[index]?.trim() && index > 0) {
+    event.preventDefault()
+    focusSlot(index - 1)
+  }
+}
+
+function onPaste(index: number, event: ClipboardEvent) {
+  const text = event.clipboardData?.getData('text') ?? ''
+  if (!text) {
+    return
+  }
+  event.preventDefault()
+  distributeWords(index, text)
 }
 
 function onCompositionStart() {
@@ -234,8 +351,9 @@ function onCompositionStart() {
   window.clearTimeout(prefixTimer)
 }
 
-function onCompositionEnd() {
+function onCompositionEnd(index: number) {
   isComposing.value = false
+  activeSlot.value = index
   schedulePrefixCheck()
 }
 
@@ -249,12 +367,21 @@ function onEnter(event: KeyboardEvent) {
   void submit()
 }
 
+function completedPrefix() {
+  const completed = slotValues.value
+    .slice(0, activeSlot.value)
+    .map((value) => value.trim())
+    .join(' ')
+    .trim()
+  return completed
+}
+
 function schedulePrefixCheck() {
   window.clearTimeout(prefixTimer)
   if (isComposing.value || !session.value || !currentItem.value || terminated.value) {
     return
   }
-  const prefix = completedPrefix(answer.value)
+  const prefix = completedPrefix()
   if (!prefix) {
     prefixState.value = null
     return
@@ -272,7 +399,7 @@ function schedulePrefixCheck() {
       if (!session.value || session.value.revision !== revision || currentItem.value?.id !== itemId) {
         return
       }
-      if (completedPrefix(answer.value) !== prefix) {
+      if (completedPrefix() !== prefix) {
         return
       }
       prefixState.value = {
@@ -288,14 +415,14 @@ function schedulePrefixCheck() {
 async function submit() {
   if (!answer.value.trim()) {
     notice.value = '请先输入英文句子'
-    answerInput.value?.focus()
+    focusSlot(firstEmptySlot())
     return
   }
   await runCommand('SUBMIT', answer.value)
 }
 
 async function askHint() {
-  await runCommand('HINT')
+  await runCommand('HINT', undefined, activeSlot.value)
 }
 
 async function revealAnswer() {
@@ -310,7 +437,7 @@ async function goNext() {
   await runCommand('NEXT')
 }
 
-async function runCommand(action: PracticeAction, text?: string) {
+async function runCommand(action: PracticeAction, text?: string, wordIndex?: number) {
   const view = session.value
   const item = currentItem.value
   if (!view || !item || submitting.value) {
@@ -324,13 +451,14 @@ async function runCommand(action: PracticeAction, text?: string) {
   window.clearTimeout(prefixTimer)
 
   try {
-    const requestId = requestIdFor(action, text)
+    const requestId = requestIdFor(action, text, wordIndex)
     const result = await sendCommand(props.sessionId, {
       requestId,
       revision: view.revision,
       itemId: item.id,
       action,
       text,
+      wordIndex: action === 'HINT' ? wordIndex : undefined,
     })
     pendingRetry = null
 
@@ -342,6 +470,16 @@ async function runCommand(action: PracticeAction, text?: string) {
 
     if (result.session.status === 'COMPLETED') {
       await router.push({ name: 'practice-result', params: { sessionId: props.sessionId } })
+      return
+    }
+
+    if (result.session.currentItem?.status === 'OPEN') {
+      if (action === 'HINT' || action === 'REVEAL') {
+        focusSlot(activeSlot.value)
+      } else if (action === 'SUBMIT') {
+        const mismatch = result.session.feedback?.firstMismatchIndex
+        focusSlot(mismatch ?? activeSlot.value)
+      }
     }
   } catch (cause) {
     if (cause instanceof ApiError && cause.status === 409) {
@@ -358,13 +496,19 @@ async function runCommand(action: PracticeAction, text?: string) {
   }
 }
 
-function requestIdFor(action: PracticeAction, text?: string) {
+function requestIdFor(action: PracticeAction, text?: string, wordIndex?: number) {
   const normalizedText = text ?? ''
-  if (pendingRetry && pendingRetry.action === action && pendingRetry.text === normalizedText) {
+  const normalizedIndex = action === 'HINT' && wordIndex !== undefined ? wordIndex : null
+  if (
+    pendingRetry &&
+    pendingRetry.action === action &&
+    pendingRetry.text === normalizedText &&
+    pendingRetry.wordIndex === normalizedIndex
+  ) {
     return pendingRetry.requestId
   }
   const requestId = newRequestId()
-  pendingRetry = { action, text: normalizedText, requestId }
+  pendingRetry = { action, text: normalizedText, wordIndex: normalizedIndex, requestId }
   return requestId
 }
 
@@ -414,33 +558,43 @@ async function reloadLatest(message: string) {
       </article>
 
       <div class="typing-area">
-        <label class="typing-label" for="answer-input">写出对应的英文句子</label>
-        <input
-          id="answer-input"
-          ref="answerInput"
-          v-model="answer"
-          class="typing-input"
-          type="text"
-          autocomplete="off"
-          autocorrect="off"
-          autocapitalize="off"
-          spellcheck="false"
-          enterkeyhint="send"
-          placeholder="在这里输入英文句子"
-          :disabled="terminated"
-          @input="onInput"
-          @keydown.enter.prevent="onEnter"
-          @compositionstart="onCompositionStart"
-          @compositionend="onCompositionEnd"
-        />
-
-        <div v-if="!terminated && words.length" class="word-row" aria-hidden="true">
-          <span v-for="(word, index) in words" :key="index" :class="wordClass(index)">
-            {{ word }}
+        <div class="typing-header">
+          <label class="typing-label">写出对应的英文句子</label>
+          <span v-if="wordLengths.length" class="slot-progress">
+            第 {{ activeSlot + 1 }} / {{ wordLengths.length }} 词
           </span>
         </div>
 
-        <p class="typing-hint">按 Enter 或点击「检查」提交整句。</p>
+        <div class="slot-row">
+          <input
+            v-for="(length, index) in wordLengths"
+            :key="index"
+            :ref="(element) => setSlotRef(index, element)"
+            v-model="slotValues[index]"
+            class="slot-input"
+            :class="`slot--${slotState(index)}`"
+            :style="{ width: slotWidth(index) }"
+            type="text"
+            autocomplete="off"
+            autocorrect="off"
+            autocapitalize="off"
+            spellcheck="false"
+            enterkeyhint="next"
+            :disabled="terminated"
+            :aria-label="`第 ${index + 1} 个单词`"
+            :aria-current="index === activeSlot ? 'true' : undefined"
+            @focus="setActiveSlot(index)"
+            @input="onSlotInput(index, $event)"
+            @keydown.space.prevent="onSpace(index)"
+            @keydown.backspace="onBackspace(index, $event)"
+            @keydown.enter.prevent="onEnter"
+            @compositionstart="onCompositionStart"
+            @compositionend="onCompositionEnd(index)"
+            @paste.prevent="onPaste(index, $event)"
+          />
+        </div>
+
+        <p class="typing-hint">输入一个单词后按空格跳到下一词；按 Enter 或点击「检查」提交整句。</p>
 
         <p class="feedback-note" :class="{ 'feedback-note--error': Boolean(detailNote) }" aria-live="polite">
           {{ statusMessage }}
@@ -452,7 +606,7 @@ async function reloadLatest(message: string) {
         <button
           type="button"
           class="button"
-          :disabled="submitting || !answer.trim()"
+          :disabled="submitting || !hasInput"
           @click="submit"
         >
           {{ submitting && submittingAction === 'SUBMIT' ? '正在检查…' : '检查' }}
@@ -484,7 +638,7 @@ async function reloadLatest(message: string) {
       </div>
 
       <section v-if="feedback?.hint && !terminated" class="hint-box">
-        <span class="hint-label">首词提示</span>
+        <span class="hint-label">提示词</span>
         <strong>{{ feedback.hint }}</strong>
       </section>
 

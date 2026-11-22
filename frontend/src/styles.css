@@ -443,56 +443,71 @@ code {
   font-weight: 600;
 }
 
-.typing-input {
-  width: 100%;
-  padding: 0.9rem 1rem;
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  background: var(--surface);
+.typing-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.slot-progress {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.slot-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.9rem 1.1rem;
+  min-height: 2.6rem;
+  padding: 0.25rem 0 0.5rem;
+}
+
+.slot-input {
+  padding: 0.2rem 0.1rem 0.25rem;
+  border: none;
+  border-bottom: 2px solid #cfc7bd;
+  border-radius: 0;
+  background: transparent;
   color: var(--ink);
   font: inherit;
   font-size: 1.05rem;
-  line-height: 1.5;
+  line-height: 1.4;
+  text-align: left;
+  transition: border-color 0.15s ease, color 0.15s ease;
 }
 
-.typing-input:focus {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-  border-color: var(--accent);
+.slot-input:focus {
+  outline: none;
 }
 
-.typing-input:disabled {
-  background: #f6f2ec;
+.slot--pending {
+  border-bottom-color: #cfc7bd;
   color: var(--muted);
 }
 
-.word-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-  min-height: 1.8rem;
+.slot--active {
+  border-bottom-color: #0ea5e9;
+  color: var(--ink);
+  box-shadow: 0 2px 0 0 rgba(14, 165, 233, 0.18);
 }
 
-.word {
-  padding: 0.15rem 0.5rem;
-  border-radius: 8px;
-  font-size: 0.88rem;
-}
-
-.word--matched {
-  background: #ecfdf3;
+.slot--matched {
+  border-bottom-color: #16a34a;
   color: #15803d;
+  font-weight: 600;
 }
 
-.word--fix {
-  background: var(--error-soft);
+.slot--fix {
+  border-bottom-color: var(--error);
   color: var(--error);
-  box-shadow: inset 0 0 0 1px #fecdca;
 }
 
-.word--pending {
-  background: #f4f1ec;
+.slot-input:disabled {
   color: var(--muted);
+  -webkit-text-fill-color: var(--muted);
 }
 
 .typing-hint {
@@ -792,7 +807,7 @@ code {
     padding: 1.25rem;
   }
 
-  .typing-input {
+  .slot-input {
     font-size: 16px;
   }
 }

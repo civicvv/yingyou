@@ -32,6 +32,29 @@ public class GradingService {
         return input.codePointCount(0, input.length()) > MAX_CODE_POINTS;
     }
 
+    /**
+     * 展示用的规范答案词列表：按空白切分，最后一词去掉句末标点。
+     * 词长与词数用于逐词划线输入，调用方需按现有可见范围使用。
+     */
+    public List<String> displayWords(String canonical) {
+        String trimmed = canonical.trim();
+        if (trimmed.isEmpty()) {
+            return List.of();
+        }
+        String[] raw = trimmed.split("\\s+");
+        List<String> words = new ArrayList<>();
+        for (int index = 0; index < raw.length; index++) {
+            String word = raw[index];
+            if (index == raw.length - 1) {
+                word = word.replaceAll("[.!?]+$", "");
+            }
+            if (!word.isEmpty()) {
+                words.add(word);
+            }
+        }
+        return words;
+    }
+
     public String normalize(String input) {
         String value = Normalizer.normalize(input, Normalizer.Form.NFKC);
         value = value.replace('\u2018', '\'').replace('\u2019', '\'');

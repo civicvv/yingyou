@@ -10,6 +10,7 @@ public record PracticeCommandRequest(
         @NotNull Long revision,
         @NotNull UUID itemId,
         @NotBlank String action,
-        String text
+        String text,
+        Integer wordIndex
 ) {
 }

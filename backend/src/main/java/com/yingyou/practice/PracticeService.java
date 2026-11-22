@@ -190,7 +190,7 @@ public class PracticeService {
                 session.touch(now);
             }
             case HINT -> {
-                useHint(item);
+                useHint(item, request.wordIndex());
                 session.touch(now);
             }
             case REVEAL -> {
@@ -307,13 +307,20 @@ public class PracticeService {
         return attempt.getId();
     }
 
-    private void useHint(PracticeItem item) {
+    private void useHint(PracticeItem item, Integer wordIndex) {
         if (item.isTerminated()) {
             throw conflict("ITEM_TERMINATED", "本题已结束");
         }
-        if (!item.isHintUsed()) {
-            item.useHint();
+        if (item.isHintUsed()) {
+            return;
         }
+        List<String> words = gradingService.displayWords(content(item.getSentenceVersionId()).canonicalEn());
+        int index = wordIndex == null ? 0 : wordIndex;
+        if (index < 0 || index >= words.size()) {
+            throw new ApiException(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_WORD_INDEX",
+                    "提示词位置超出题目范围");
+        }
+        item.useHint(index);
     }
 
     private void reveal(PracticeItem item) {
@@ -387,8 +394,12 @@ public class PracticeService {
         PracticeFeedbackView feedback = null;
         if (item != null) {
             SentenceContentRepository.SentenceContent content = content(item.getSentenceVersionId());
+            List<String> words = gradingService.displayWords(content.canonicalEn());
+            List<Integer> wordLengths = words.stream()
+                    .map(word -> word.codePointCount(0, word.length()))
+                    .toList();
             itemView = new PracticeItemView(item.getId(), content.promptZh(), content.contextZh(),
-                    item.getStatus().name(), item.isHintUsed(), item.isAnswerRevealed());
+                    item.getStatus().name(), item.isHintUsed(), item.isAnswerRevealed(), wordLengths);
             feedback = feedback(session, item, content);
         }
 
@@ -412,7 +423,7 @@ public class PracticeService {
         String explanation = reveal ? content.explanationZh() : null;
         List<ExplanationSegmentView> segments = reveal ? content.explanationSegments() : null;
         List<String> grammarTags = reveal ? content.grammarTags() : null;
-        String hint = item.isHintUsed() && !reveal ? firstWord(content.canonicalEn()) : null;
+        String hint = item.isHintUsed() && !reveal ? hintWord(item, content) : null;
 
         NextPreviewView nextPreview = null;
         if (item.isTerminated() && session.getStatus() == PracticeSessionStatus.OPEN
@@ -466,10 +477,10 @@ public class PracticeService {
                 .orElseThrow(() -> new IllegalStateException("题目版本不存在：" + sentenceVersionId));
     }
 
-    private String firstWord(String sentence) {
-        String trimmed = sentence.trim();
-        int space = trimmed.indexOf(' ');
-        return space < 0 ? trimmed : trimmed.substring(0, space);
+    private String hintWord(PracticeItem item, SentenceContentRepository.SentenceContent content) {
+        List<String> words = gradingService.displayWords(content.canonicalEn());
+        int index = item.getHintWordIndex() == null ? 0 : item.getHintWordIndex();
+        return index >= 0 && index < words.size() ? words.get(index) : null;
     }
 
     private CommandAction parseAction(String action) {
@@ -482,7 +493,8 @@ public class PracticeService {
 
     private String commandDigest(PracticeCommandRequest request) {
         return digest(request.action() + "|" + request.itemId() + "|"
-                + (request.text() == null ? "" : request.text()));
+                + (request.text() == null ? "" : request.text()) + "|"
+                + (request.wordIndex() == null ? "" : request.wordIndex()));
     }
 
     private String digest(String value) {

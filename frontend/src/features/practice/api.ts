@@ -18,6 +18,7 @@ export interface PracticeItemView {
   status: 'OPEN' | 'PASSED_INDEPENDENT' | 'PASSED_ASSISTED' | 'SKIPPED'
   hintUsed: boolean
   answerRevealed: boolean
+  wordLengths: number[]
 }
 
 export interface PracticeFeedbackView {
@@ -108,6 +109,7 @@ export function sendCommand(
     itemId: string
     action: PracticeAction
     text?: string
+    wordIndex?: number
   },
 ) {
   return api.post<PracticeCommandResponse>(`/practice/sessions/${sessionId}/commands`, body)

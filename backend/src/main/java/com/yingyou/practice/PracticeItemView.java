@@ -1,5 +1,6 @@
 package com.yingyou.practice;
 
+import java.util.List;
 import java.util.UUID;
 
 public record PracticeItemView(
@@ -8,6 +9,7 @@ public record PracticeItemView(
         String contextZh,
         String status,
         boolean hintUsed,
-        boolean answerRevealed
+        boolean answerRevealed,
+        List<Integer> wordLengths
 ) {
 }
