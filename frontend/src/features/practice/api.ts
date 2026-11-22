@@ -81,6 +81,10 @@ export interface PracticeResult {
   skippedCount: number
   firstTryCorrectCount: number
   firstTryAccuracy: number
+  examTrack: string | null
+  vocabBand: string | null
+  baselineDifficulty: string | null
+  nextDifficultySuggestion: string | null
   items: PracticeResultItem[]
 }
 

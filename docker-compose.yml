@@ -1,0 +1,21 @@
+services:
+  db:
+    image: postgres:17-alpine
+    container_name: yingyou-postgres
+    environment:
+      POSTGRES_DB: yingyou
+      POSTGRES_USER: yingyou
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在 .env 中设置 POSTGRES_PASSWORD}
+    ports:
+      # 宿主机 5432 常被本机 PostgreSQL 占用，这里映射到 5433。
+      - "5433:5432"
+    volumes:
+      - yingyou-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U yingyou -d yingyou"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  yingyou-pgdata:

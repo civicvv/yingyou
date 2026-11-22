@@ -63,8 +63,13 @@ async function loadMyCourses() {
     <header class="page-heading">
       <p class="eyebrow">我的课程</p>
       <h1>从一门短课开始</h1>
-      <p class="lede">选择课程，按课节练习中译英整句表达。</p>
+      <p class="lede">选择课程，按课节练习中译英整句表达；也可以先测词汇，按目标生成定制批次。</p>
     </header>
+
+    <div class="page-actions">
+      <RouterLink class="button" to="/assessment">快速测词汇</RouterLink>
+      <RouterLink class="button button-ghost" to="/personalized">定制练习</RouterLink>
+    </div>
 
     <p v-if="loading" class="notice">正在加载课程…</p>
     <p v-else-if="error" class="notice notice-error">{{ error }}</p>

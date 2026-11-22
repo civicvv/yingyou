@@ -11,6 +11,7 @@ import com.yingyou.catalog.LessonVersionItemRepository;
 import com.yingyou.progress.ProgressService;
 import com.yingyou.shared.web.ApiException;
 import org.springframework.http.HttpStatus;
+import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import tools.jackson.databind.ObjectMapper;
@@ -19,6 +20,8 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.time.Instant;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HexFormat;
 import java.util.List;
@@ -42,6 +45,7 @@ public class PracticeService {
     private final GradingService gradingService;
     private final PrefixCheckThrottle prefixCheckThrottle;
     private final ProgressService progressService;
+    private final JdbcClient jdbcClient;
     private final ObjectMapper objectMapper;
 
     public PracticeService(PracticeSessionRepository sessionRepository,
@@ -57,6 +61,7 @@ public class PracticeService {
                            GradingService gradingService,
                            PrefixCheckThrottle prefixCheckThrottle,
                            ProgressService progressService,
+                           JdbcClient jdbcClient,
                            ObjectMapper objectMapper) {
         this.sessionRepository = sessionRepository;
         this.itemRepository = itemRepository;
@@ -71,6 +76,7 @@ public class PracticeService {
         this.gradingService = gradingService;
         this.prefixCheckThrottle = prefixCheckThrottle;
         this.progressService = progressService;
+        this.jdbcClient = jdbcClient;
         this.objectMapper = objectMapper;
     }
 
@@ -108,6 +114,39 @@ public class PracticeService {
         progressService.touchLesson(learnerId, lesson.getId(), session.getId());
         sessionRequestRepository.save(new PracticeSessionRequest(requestId, digest, session.getId(), Instant.now()));
         return view(session);
+    }
+
+    @Transactional
+    public PracticeSessionView createPersonalizedSession(UUID learnerId, PersonalizedSessionCommand command) {
+        learnerRepository.findByIdForUpdate(learnerId)
+                .orElseThrow(() -> new ApiException(HttpStatus.UNAUTHORIZED, "UNAUTHENTICATED", "需要有效的学习者会话"));
+
+        String digest = digest("PERSONALIZED|" + command.examTrack() + "|" + command.assessmentId()
+                + "|" + command.vocabBand() + "|" + command.baselineDifficulty()
+                + "|" + String.join(",", command.sentenceVersionIds()));
+        PracticeSessionRequestId requestId = new PracticeSessionRequestId(learnerId, command.requestId());
+        Optional<PracticeSessionRequest> existingRequest = sessionRequestRepository.findById(requestId);
+        if (existingRequest.isPresent()) {
+            PracticeSessionRequest record = existingRequest.get();
+            if (!record.getRequestDigest().equals(digest)) {
+                throw conflict("REQUEST_ID_CONFLICT", "相同请求号对应不同请求内容");
+            }
+            PracticeSession session = sessionRepository.findById(record.getSessionId())
+                    .orElseThrow(() -> ApiException.notFound("SESSION_NOT_FOUND", "练习会话不存在"));
+            return view(session);
+        }
+
+        PracticeSession session = sessionRepository
+                .findOpenPersonalizedSession(learnerId, command.examTrack())
+                .orElseGet(() -> createNewPersonalizedSession(learnerId, command));
+        sessionRequestRepository.save(new PracticeSessionRequest(requestId, digest, session.getId(), Instant.now()));
+        return view(session);
+    }
+
+    @Transactional(readOnly = true)
+    public PracticeSession requireSession(UUID sessionId) {
+        return sessionRepository.findById(sessionId)
+                .orElseThrow(() -> ApiException.notFound("SESSION_NOT_FOUND", "练习会话不存在"));
     }
 
     @Transactional(readOnly = true)
@@ -248,6 +287,7 @@ public class PracticeService {
         double accuracy = total == 0 ? 0 : Math.round(firstTryCorrect * 10000.0 / total) / 10000.0;
 
         Lesson lesson = lesson(session);
+        SelectionInfo selection = selectionInfo(session.getId());
         return new PracticeResultView(
                 session.getId(),
                 lesson == null ? null : lesson.getCourseId(),
@@ -260,7 +300,27 @@ public class PracticeService {
                 session.getSkippedCount() == null ? 0 : session.getSkippedCount(),
                 firstTryCorrect,
                 accuracy,
+                selection == null ? null : selection.examTrack(),
+                selection == null ? null : selection.vocabBand(),
+                selection == null ? null : selection.baselineDifficulty(),
+                selection == null ? null : selection.nextDifficultySuggestion(),
                 itemViews);
+    }
+
+    private SelectionInfo selectionInfo(UUID sessionId) {
+        return jdbcClient.sql("""
+                        select exam_track, vocab_band, baseline_difficulty, next_difficulty_suggestion
+                        from practice_selection where practice_session_id = :sessionId
+                        """)
+                .param("sessionId", sessionId)
+                .query((rs, rowNum) -> new SelectionInfo(
+                        rs.getString("exam_track"),
+                        rs.getString("vocab_band"),
+                        rs.getString("baseline_difficulty"),
+                        rs.getString("next_difficulty_suggestion")))
+                .stream()
+                .findFirst()
+                .orElse(null);
     }
 
     private PracticeSession createNewSession(UUID learnerId, Lesson lesson) {
@@ -280,6 +340,42 @@ public class PracticeService {
             itemRepository.save(new PracticeItem(UUID.randomUUID(), session.getId(), position++,
                     item.getSentenceVersionId()));
         }
+        return session;
+    }
+
+    private PracticeSession createNewPersonalizedSession(UUID learnerId, PersonalizedSessionCommand command) {
+        List<String> versions = command.sentenceVersionIds();
+        if (versions.isEmpty()) {
+            throw conflict("INSUFFICIENT_PRACTICE_ITEMS", "题量不足，无法创建定制练习");
+        }
+        Instant now = Instant.now();
+        PracticeSession session = new PracticeSession(UUID.randomUUID(), learnerId,
+                PracticeScenario.PERSONALIZED, command.examTrack(), versions.size(),
+                GradingService.VERSION, now);
+        sessionRepository.saveAndFlush(session);
+
+        int position = 1;
+        for (String versionId : versions) {
+            itemRepository.save(new PracticeItem(UUID.randomUUID(), session.getId(), position++, versionId));
+        }
+        jdbcClient.sql("""
+                        insert into practice_selection
+                            (practice_session_id, exam_track, assessment_id, vocab_band,
+                             baseline_difficulty, rule_version, fallback_reason,
+                             selected_sentence_versions, created_at)
+                        values (:sessionId, :examTrack, :assessmentId, :vocabBand,
+                                :baseline, :ruleVersion, :fallbackReason, :versions::jsonb, :now)
+                        """)
+                .param("sessionId", session.getId())
+                .param("examTrack", command.examTrack())
+                .param("assessmentId", command.assessmentId())
+                .param("vocabBand", command.vocabBand())
+                .param("baseline", command.baselineDifficulty())
+                .param("ruleVersion", command.ruleVersion())
+                .param("fallbackReason", command.fallbackReason())
+                .param("versions", objectMapper.writeValueAsString(versions))
+                .param("now", OffsetDateTime.ofInstant(now, ZoneOffset.UTC))
+                .update();
         return session;
     }
 
@@ -516,6 +612,22 @@ public class PracticeService {
 
     private ApiException conflict(String code, String message) {
         return new ApiException(HttpStatus.CONFLICT, code, message);
+    }
+
+    private record SelectionInfo(String examTrack, String vocabBand, String baselineDifficulty,
+                                 String nextDifficultySuggestion) {
+    }
+
+    public record PersonalizedSessionCommand(
+            UUID requestId,
+            String examTrack,
+            UUID assessmentId,
+            String vocabBand,
+            String baselineDifficulty,
+            String ruleVersion,
+            String fallbackReason,
+            List<String> sentenceVersionIds
+    ) {
     }
 
     private enum CommandAction {

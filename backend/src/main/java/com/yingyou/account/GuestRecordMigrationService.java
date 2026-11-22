@@ -53,6 +53,7 @@ public class GuestRecordMigrationService {
         transferSessions(guestLearnerId, accountLearnerId);
         transferSessionRequests(guestLearnerId, accountLearnerId);
         rebuildLessonProgress(guestLearnerId, accountLearnerId);
+        transferAssessmentAndPreferences(guestLearnerId, accountLearnerId);
 
         jdbcClient.sql("""
                         update learner
@@ -162,5 +163,88 @@ public class GuestRecordMigrationService {
                         """)
                 .param("accountId", accountLearnerId)
                 .update();
+    }
+
+    /**
+     * 迁移测评结果与定制偏好。目标账号已有的设置优先；重复进行中的测评只保留账号侧。
+     */
+    private void transferAssessmentAndPreferences(UUID guestLearnerId, UUID accountLearnerId) {
+        jdbcClient.sql("""
+                        delete from assessment_request
+                        where learner_id = :guestId
+                          and session_id in (
+                              select id from assessment_session
+                              where learner_id = :guestId and status = 'OPEN'
+                          )
+                          and exists (
+                              select 1 from assessment_session
+                              where learner_id = :accountId and status = 'OPEN'
+                          )
+                        """)
+                .param("guestId", guestLearnerId)
+                .param("accountId", accountLearnerId)
+                .update();
+        jdbcClient.sql("""
+                        delete from assessment_session
+                        where learner_id = :guestId and status = 'OPEN'
+                          and exists (
+                              select 1 from assessment_session
+                              where learner_id = :accountId and status = 'OPEN'
+                          )
+                        """)
+                .param("guestId", guestLearnerId)
+                .param("accountId", accountLearnerId)
+                .update();
+
+        for (String table : List.of("assessment_session", "assessment_result")) {
+            jdbcClient.sql("update " + table + " set learner_id = :accountId where learner_id = :guestId")
+                    .param("accountId", accountLearnerId)
+                    .param("guestId", guestLearnerId)
+                    .update();
+        }
+
+        jdbcClient.sql("""
+                        delete from learner_exam_preference g
+                        where g.learner_id = :guestId
+                          and exists (
+                              select 1 from learner_exam_preference a where a.learner_id = :accountId
+                          )
+                        """)
+                .param("guestId", guestLearnerId)
+                .param("accountId", accountLearnerId)
+                .update();
+        jdbcClient.sql("update learner_exam_preference set learner_id = :accountId where learner_id = :guestId")
+                .param("accountId", accountLearnerId)
+                .param("guestId", guestLearnerId)
+                .update();
+
+        jdbcClient.sql("""
+                        delete from learner_track_placement g
+                        where g.learner_id = :guestId
+                          and exists (
+                              select 1 from learner_track_placement a
+                              where a.learner_id = :accountId and a.exam_track = g.exam_track
+                          )
+                        """)
+                .param("guestId", guestLearnerId)
+                .param("accountId", accountLearnerId)
+                .update();
+        jdbcClient.sql("update learner_track_placement set learner_id = :accountId where learner_id = :guestId")
+                .param("accountId", accountLearnerId)
+                .param("guestId", guestLearnerId)
+                .update();
+
+        for (String table : List.of("personalized_request", "preference_request", "assessment_request")) {
+            jdbcClient.sql("delete from " + table + " g where g.learner_id = :guestId "
+                    + "and exists (select 1 from " + table + " a where a.learner_id = :accountId "
+                    + "and a.request_id = g.request_id)")
+                    .param("guestId", guestLearnerId)
+                    .param("accountId", accountLearnerId)
+                    .update();
+            jdbcClient.sql("update " + table + " set learner_id = :accountId where learner_id = :guestId")
+                    .param("accountId", accountLearnerId)
+                    .param("guestId", guestLearnerId)
+                    .update();
+        }
     }
 }

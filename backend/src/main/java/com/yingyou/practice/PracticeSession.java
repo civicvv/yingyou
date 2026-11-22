@@ -30,6 +30,9 @@ public class PracticeSession {
     @Column(name = "lesson_version_id")
     private String lessonVersionId;
 
+    @Column(name = "exam_track")
+    private String examTrack;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private PracticeSessionStatus status;
@@ -72,11 +75,23 @@ public class PracticeSession {
 
     public PracticeSession(UUID id, UUID learnerId, PracticeScenario scenario, String lessonId,
                            String lessonVersionId, int total, String gradingVersion, Instant now) {
+        this(id, learnerId, scenario, lessonId, lessonVersionId, null, total, gradingVersion, now);
+    }
+
+    public PracticeSession(UUID id, UUID learnerId, PracticeScenario scenario, String examTrack,
+                           int total, String gradingVersion, Instant now) {
+        this(id, learnerId, scenario, null, null, examTrack, total, gradingVersion, now);
+    }
+
+    private PracticeSession(UUID id, UUID learnerId, PracticeScenario scenario, String lessonId,
+                            String lessonVersionId, String examTrack, int total,
+                            String gradingVersion, Instant now) {
         this.id = id;
         this.learnerId = learnerId;
         this.scenario = scenario;
         this.lessonId = lessonId;
         this.lessonVersionId = lessonVersionId;
+        this.examTrack = examTrack;
         this.status = PracticeSessionStatus.OPEN;
         this.position = 1;
         this.total = total;
@@ -104,6 +119,10 @@ public class PracticeSession {
 
     public String getLessonVersionId() {
         return lessonVersionId;
+    }
+
+    public String getExamTrack() {
+        return examTrack;
     }
 
     public PracticeSessionStatus getStatus() {

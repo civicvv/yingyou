@@ -33,4 +33,13 @@ public interface PracticeSessionRepository extends JpaRepository<PracticeSession
               and s.status = com.yingyou.practice.PracticeSessionStatus.OPEN
             """)
     List<PracticeSession> findOpenLessonSessions(@Param("learnerId") UUID learnerId);
+
+    @Query("""
+            select s from PracticeSession s
+            where s.learnerId = :learnerId and s.examTrack = :examTrack
+              and s.scenario = com.yingyou.practice.PracticeScenario.PERSONALIZED
+              and s.status = com.yingyou.practice.PracticeSessionStatus.OPEN
+            """)
+    Optional<PracticeSession> findOpenPersonalizedSession(@Param("learnerId") UUID learnerId,
+                                                          @Param("examTrack") String examTrack);
 }

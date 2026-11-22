@@ -52,6 +52,8 @@ public class SecurityConfig {
                                 "/api/v1/auth/password-reset-requests",
                                 "/api/v1/auth/password-resets").permitAll()
                         .requestMatchers("/api/v1/practice/**").permitAll()
+                        .requestMatchers("/api/v1/vocabulary-assessments/**").permitAll()
+                        .requestMatchers("/api/v1/personalized-practice/**").permitAll()
                         .requestMatchers("/api/v1/me/**").permitAll()
                         .anyRequest().denyAll())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.IF_REQUIRED))

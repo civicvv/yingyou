@@ -15,6 +15,10 @@ public record PracticeResultView(
         int skippedCount,
         int firstTryCorrectCount,
         double firstTryAccuracy,
+        String examTrack,
+        String vocabBand,
+        String baselineDifficulty,
+        String nextDifficultySuggestion,
         List<PracticeResultItemView> items
 ) {
 }

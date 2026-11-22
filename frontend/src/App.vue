@@ -29,6 +29,8 @@ function shortId(id: string) {
 
       <div class="identity">
         <RouterLink class="header-link" to="/overview">学习概览</RouterLink>
+        <RouterLink class="header-link" to="/assessment">测词汇</RouterLink>
+        <RouterLink class="header-link" to="/personalized">定制练习</RouterLink>
         <span v-if="kind === 'UNKNOWN'" class="identity-text">正在识别身份</span>
         <template v-else-if="kind === 'GUEST'">
           <span class="identity-text">

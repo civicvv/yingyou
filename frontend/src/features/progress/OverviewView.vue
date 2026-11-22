@@ -70,6 +70,11 @@ async function loadCourses() {
       <p class="lede">按最近练习排序，继续未完成课节或回看上次结果。</p>
     </header>
 
+    <div class="page-actions">
+      <RouterLink class="button button-ghost" to="/assessment">测词汇</RouterLink>
+      <RouterLink class="button button-ghost" to="/personalized">定制练习</RouterLink>
+    </div>
+
     <p v-if="identityLoading || loading" class="notice">正在整理学习记录…</p>
     <p v-else-if="error" class="notice notice-error">{{ error }}</p>
 

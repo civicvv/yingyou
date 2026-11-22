@@ -2,6 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { RouterLink, useRouter } from 'vue-router'
 import { ApiError } from '@/shared/api/client'
+import { examTrackLabel } from '@/features/catalog/api'
 import { fetchPracticeResult, type PracticeResult } from './api'
 
 const props = defineProps<{ sessionId: string }>()
@@ -55,6 +56,13 @@ function accuracyText(value: number) {
         <h1>本节结果</h1>
         <p class="lede">共 {{ result.total }} 题，首答正确率 {{ accuracyText(result.firstTryAccuracy) }}。</p>
       </header>
+
+      <div v-if="result.examTrack" class="notice">
+        定制批次 · {{ examTrackLabel(result.examTrack) }} · 词汇档 {{ result.vocabBand }}
+        · 起始难度 {{ result.baselineDifficulty }}
+        <span v-if="result.nextDifficultySuggestion"> · 下批建议 {{ result.nextDifficultySuggestion }}</span>
+        <RouterLink class="button button-small" to="/personalized">查看下一批</RouterLink>
+      </div>
 
       <dl class="stat-grid">
         <div class="stat-card">
